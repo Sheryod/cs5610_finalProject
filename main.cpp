@@ -16,7 +16,7 @@
 
 #include <lodepng.h>
 
-//#include <LTC.h>
+#include <LTC.h>
 
 //#include <glm/glm.hpp>
 //#include <glm/gtc/matrix_transform.hpp>
@@ -206,7 +206,7 @@ GLuint areaLightVAO;
 int areaLightNumVert;
 
 cy::Vec3f* areaLightUniqueVert;
-cy::Matrix3f ltc_Minv = cy::Matrix3f::Identity();
+//cy::Matrix3f ltc_Minv = cy::Matrix3f::Identity();
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -870,14 +870,30 @@ void areaLightVAOVBOfromOBJ() {
 void areaLightUniqueVerts() {
 	areaLightUniqueVert = new cy::Vec3f[24]; // 6 area lights, 4 vertices each
 	int vertOffSet = 0;
-	for (int i = 0; i < 24; i = i + 4) {
+	for (int i = 0; i < 24; i += 4) {
 		areaLightUniqueVert[i] = areaLightVertices[vertOffSet];
 		areaLightUniqueVert[i + 1] = areaLightVertices[vertOffSet + 1];
-		areaLightUniqueVert[i + 2] = areaLightVertices[vertOffSet + 3];
+		areaLightUniqueVert[i + 2] = areaLightVertices[vertOffSet + 2];
 		areaLightUniqueVert[i + 3] = areaLightVertices[vertOffSet + 5];
 
 		vertOffSet += 6; // each area light was made from 6 vertices
 	}
+}
+
+/// <summary>
+/// Set up the texture for the Minv using precomputed values.
+/// 
+/// ltc1: inverted transformation matrices.
+/// ltc2: fresnel90, horizon clipping factor, smith coefficient for geometric attenuation.
+/// </summary>
+cy::GLTexture2D loadMinvTexture(const float* matrixTable) {
+	cy::GLTexture2D texture;
+	texture.Initialize();
+	texture.SetImage(matrixTable, 4, 64, 64); // 4 channels, 64x64 size
+	texture.SetWrappingMode(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+	texture.SetFilteringMode(GL_LINEAR, GL_NEAREST);
+	//texture.Bind();
+	return texture;
 }
 
 void waveSetup() {
@@ -964,7 +980,14 @@ int main(int argc, char* argv[]) {
 	// area light setup for main program
 
 	prog.SetUniform("areaLightVerts", areaLightUniqueVert, 24);
-	prog["Minv"] = ltc_Minv;
+
+	cy::GLTexture2D ltc1 = loadMinvTexture(LTC1);
+	cy::GLTexture2D ltc2 = loadMinvTexture(LTC2);
+	ltc1.Bind(0);
+	prog["ltc1"] = 0;
+	ltc2.Bind(1);
+	prog["ltc2"] = 1;
+
 
 	// // just checking the wave direction:
 	//fprintf(stderr, "waveDirection:\n");
@@ -974,8 +997,8 @@ int main(int argc, char* argv[]) {
 
 	// // just checking the area light vertices:
 	//fprintf(stderr, "area light vertices:\n");
-	//for (int i = 0; i < areaLightNumVert; i++) {
-	//	fprintf(stderr, "%f %f %f\n", areaLightVertices[i].x, areaLightVertices[i].y, areaLightVertices[i].z);
+	//for (int i = 0; i < 24; i++) {
+	//	fprintf(stderr, "%f %f %f\n", areaLightUniqueVert[i].x, areaLightUniqueVert[i].y, areaLightUniqueVert[i].z);
 	//}
 
 	// Register callbacks
