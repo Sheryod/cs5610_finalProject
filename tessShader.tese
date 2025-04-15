@@ -5,7 +5,6 @@ layout(triangles, equal_spacing, ccw) in;
 
 in vec3 pos[];
 in vec2 uvs[];
-//in vec3 wPos[];
 
 out vec3 fragPos;
 out vec2 fragTexCoord;
@@ -16,7 +15,6 @@ uniform mat4 viewMat;
 uniform mat4 projectionMat;
 
 uniform float time;
-
 uniform int numOfWaves;
 uniform float waveAmplitude[32];
 uniform float waveFrequency[32];

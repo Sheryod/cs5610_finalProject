@@ -206,7 +206,7 @@ GLuint areaLightVAO;
 int areaLightNumVert;
 
 cy::Vec3f* areaLightUniqueVert;
-//cy::Matrix3f ltc_Minv = cy::Matrix3f::Identity();
+
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -958,6 +958,18 @@ int main(int argc, char* argv[]) {
 	areaLightUniqueVerts(); // get the unique vertices for the area lights (for each 6 vertices, take the first three and last vertices)
 	areaLightVAOVBOfromOBJ();
 
+	// area light textures
+	auto areaLightTexFileName = argv[3];
+	std::vector<unsigned char> areaLightTexData;
+	unsigned areaLightTexWidth, areaLightTexHeight;
+	decodeOneStep(areaLightTexFileName, areaLightTexData, areaLightTexWidth, areaLightTexHeight);
+
+	cyGLTexture2D AL_Tex;
+	AL_Tex.Initialize();
+	AL_Tex.SetImage(areaLightTexData.data(), 4, areaLightTexWidth, areaLightTexHeight);
+	AL_Tex.BuildMipmaps();
+
+
 	////
 	// cube (texture) mapping setup
 	cubeMapping();
@@ -988,6 +1000,8 @@ int main(int argc, char* argv[]) {
 	ltc2.Bind(1);
 	prog["ltc2"] = 1;
 
+	AL_Tex.Bind(0);
+	areaLightProg["areaLightTex"] = 0;
 
 	// // just checking the wave direction:
 	//fprintf(stderr, "waveDirection:\n");

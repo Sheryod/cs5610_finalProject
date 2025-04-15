@@ -17,9 +17,6 @@ uniform float constAmbientLight;
 
 uniform vec3 cameraVec;         // Camera vector = V
 
-//uniform sampler2DShadow shadow;
-//in vec4 lightView_Position;
-
 uniform samplerCube env;
 
 // the following is for area lights
@@ -37,18 +34,11 @@ const float LUT_BIAS = 0.5/LUT_SIZE;
 vec3 integrateEdgeVec(vec3 v1, vec3 v2){
     float x = dot(v1, v2);
     float y = abs(x);
-    //return vec3(y); // debugging
     float a = 0.8543985 + (0.4965155 + 0.0145206*y)*y;
     float b = 3.4175940 + (4.1616724 + y)*y;
     float v = a / b;
     float theta_sintheta = (x > 0.0) ? v : 0.5*inversesqrt(max(1.0 - x*x, 1e-7)) - v;
-    //return vec3(theta_sintheta); // debugging
     return cross(v1, v2) * theta_sintheta;
-}
-
-float IntegrateEdge(vec3 v1, vec3 v2)
-{
-   return integrateEdgeVec(v1, v2).z;
 }
 
 /// calculate for 1 area light source
@@ -69,7 +59,6 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     for (int i = 0; i < 4; i++){
         L[i] = areaLightVerts[index + i];
         transformedLight[i] = normalize(Minv * (L[i] - P));
-        //transformedLight[i] = Minv * (L[i] - P);
     }
 
     vec3 dir = L[0] - P; // direction from light to surface
@@ -79,15 +68,12 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
         return vec3(0.0); // if the light is behind the surface, return 0
     }
 
-
     // integrate the edge of the light
     vec3 vSum = vec3(0.0);
     vSum += integrateEdgeVec(transformedLight[0], transformedLight[1]);
     vSum += integrateEdgeVec(transformedLight[1], transformedLight[2]);
     vSum += integrateEdgeVec(transformedLight[2], transformedLight[3]);
     vSum += integrateEdgeVec(transformedLight[3], transformedLight[0]);
-
-    // return vSum; // just for debugging
 
     // form factor of the polygon in direction vsum
     float len = length(vSum);
@@ -106,9 +92,6 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
 
     // Outgoing radiance (solid angle) for the entire polygon
     return vec3(sum);
-
-    //vec3 Lo_i = vec3(sum, sum, sum);
-    //return Lo_i;
 }
 
 
@@ -163,34 +146,15 @@ void main() {
         ltc_diffuse += evaluateLTC(i, N, V, P, mat3(1)) * areaLight_color;
     }
 
-    //vec3 ltcResult = 10 * (ltc_diffuse + ltc_spec);
-
-
     // GGX BRDF shadowing and Fresnel
     // t2.x: shadowedF90 (F90 normally it should be 1.0)
     // t2.y: Smith function for Geometric Attenuation Term, it is dot(V or L, H).
     ltc_spec *= mSpecular * t2.x + (vec3(1.0) - mSpecular) * t2.y;
-    //ltc_diffuse *= mDiffuse * ltc_diffuse;
     ltc_diffuse *= mDiffuse;
 
-    vec3 ltcResult = 100 * (ltc_spec + ltc_diffuse);
-
-    color = vec4(ToSRGB(ltcResult), 1.0);
-
-
-    //vec3 ltc_test = evaluateLTC(0, N, V, P, Minv);
-
-    //color = vec4(ltc_test, 1.0);
-
-    //color = vec4(ltc_spec, 1.0);
-    
-    //color = texture(ltc1, uv_sample);
-    //color = texture(ltc2, uv_sample);
-
-    //vec3 ltc_test = evaluateLTC(0, N, V, P, Minv);
-    //color = vec4(ltc_test, 1.0);
-    //vec3 ltc_test = evaluateLTC(0, N, V, P, Minv);
-    //color = vec4(ToSRGB(ltc_test), 1.0);
+    // // area light result
+    //vec3 ltcResult = 10 * (ltc_spec + ltc_diffuse);
+    //color = vec4(ToSRGB(ltcResult), 1.0);
 
 
     ////////////////////////
@@ -232,14 +196,12 @@ void main() {
     // combine env map and direction light result
     vec3 dirColor = dirResult + envResult;
 
-    //color = vec4(dirColor + ToSRGB(ltcResult), 1.0);
 
 
-
-    vec3 combDiffuse = dirDiffuse + ToSRGB(ltc_diffuse);
-    vec3 combSpecular = dirSpecular + ToSRGB(ltc_spec);
+    vec3 combDiffuse = dirDiffuse + ToSRGB(ltc_diffuse) * 3;
+    vec3 combSpecular = dirSpecular + ToSRGB(ltc_spec) * 3;
     vec3 combResult = dirLightIntensity * (combDiffuse + combSpecular) + dirAmbientLight * dirAmbientCol;
 
-    //color = vec4(combResult, 1.0);
+    color = vec4(combResult, 1.0);
 
 }
