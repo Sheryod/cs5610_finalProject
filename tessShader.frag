@@ -22,7 +22,11 @@ uniform samplerCube env;
 // the following is for area lights
 const int NUM_LIGHTS = 6; // number of area lights
 uniform vec3 areaLightVerts[24]; // 4 vertices for 6 squares
+uniform sampler2D areaLightTex; // area light texture
+uniform vec2 areaLightTexOffset[6]; // offset for area light texture
+uniform vec2 areaLightTexScale; // scale for area light texture
 
+// LTC look up table
 uniform sampler2D ltc1;
 uniform sampler2D ltc2;
 const float LUT_SIZE = 64.0; // ltc_texture size. LUT = look up table
@@ -30,7 +34,8 @@ const float LUT_SCALE = (LUT_SIZE - 1.0)/LUT_SIZE;
 const float LUT_BIAS = 0.5/LUT_SIZE;
 
 // calculating the edge integral using a cubic function which approximates acos.
-// source: https://learnopengl.com/Guest-Articles/2022/Area-Lights
+// i.e. this function replaces the acos function.
+// reference: https://learnopengl.com/Guest-Articles/2022/Area-Lights
 vec3 integrateEdgeVec(vec3 v1, vec3 v2){
     float x = dot(v1, v2);
     float y = abs(x);
@@ -58,7 +63,7 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     int index = lightNum * 4;
     for (int i = 0; i < 4; i++){
         L[i] = areaLightVerts[index + i];
-        transformedLight[i] = normalize(Minv * (L[i] - P));
+        transformedLight[i] = normalize(Minv * (L[i] - P)); // P_i ... P_j
     }
 
     vec3 dir = L[0] - P; // direction from light to surface
@@ -76,7 +81,7 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     vSum += integrateEdgeVec(transformedLight[3], transformedLight[0]);
 
     // form factor of the polygon in direction vsum
-    float len = length(vSum);
+    float len = length(vSum);   // = highlight strength
     if (len < 1e-7) {
         return vec3(0.0);
     }
@@ -94,7 +99,6 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     return vec3(sum);
 }
 
-
 // PBR-maps for roughness (and metallic) are usually stored in non-linear
 // color space (sRGB), so we use these functions to convert into linear RGB.
 vec3 PowVec3(vec3 v, float p)
@@ -105,6 +109,29 @@ vec3 PowVec3(vec3 v, float p)
 const float gamma = 2.2;
 vec3 ToLinear(vec3 v) { return PowVec3(v, gamma); }
 vec3 ToSRGB(vec3 v)   { return PowVec3(v, 1.0/gamma); }
+
+vec2 computeLocalTextureCoords(vec3 P, vec3 lightCenter, vec3 lightRight, vec3 lightUp) {
+    vec3 diff = P - lightCenter;
+    return vec2(dot(diff, lightRight), dot(diff, lightUp));
+
+    //float u = 0.5 + dot(diff, lightRight) / width;
+    //float v = 0.5 + dot(diff, lightUp) / height;
+    //return vec2(u, v); // debugging
+}
+
+float computeLOD(vec3 P, vec3 lightCenter, float polygonArea)
+{
+    //vec3 distance = P - lightCenter;
+    //float r2 = dot(distance, distance);
+    //float sigma = sqrt(r2 / (2.0 * polygonArea));
+    //return sigma;
+    //return sigma * 10.0;
+
+    float distanceToLight = length(P - lightCenter);
+    float distanceToLight2 = distanceToLight * distanceToLight;
+    float sigma = sqrt(distanceToLight2 / (2.0 * polygonArea));
+    return sigma;
+}
 
 void main() {
 
@@ -139,22 +166,55 @@ void main() {
     // area lights
     vec3 ltc_spec = vec3(0.0);
     vec3 ltc_diffuse = vec3(0.0);
+    vec3 finalTexColor = vec3(0.0);
+
     for (int i = 0; i < NUM_LIGHTS; i++){
         // For specular, use the LTC matrix.
         ltc_spec += evaluateLTC(i, N, V, P, Minv) * areaLight_color;
         // For diffuse, use an identity matrix.
         ltc_diffuse += evaluateLTC(i, N, V, P, mat3(1)) * areaLight_color;
+
+        // for textured area lights
+        int startIndex = i * 4;
+        vec3 point1 = areaLightVerts[startIndex];
+        vec3 point2 = areaLightVerts[startIndex + 1];
+        vec3 point3 = areaLightVerts[startIndex + 2];
+        vec3 point4 = areaLightVerts[startIndex + 3];
+
+        float length1 = length(point2 - point1);
+        float length2 = length(point3 - point1);
+        float lightArea = length1 * length2;
+        //vec3 centerPoint = point3 + (point1 - point3) * 0.5; // only using 3 points
+        vec3 centerPoint = (point1 + point2 + point3 + point4) / 4.0; // uses 4 points
+
+        vec3 lightRight = normalize(point2 - point1);
+        vec3 lightUp = normalize(point3 - point1);
+        //vec2 uv = computeLocalTextureCoords(P, centerPoint, lightRight, lightUp, length1, length2); // debugging
+        vec2 uv = computeLocalTextureCoords(P, centerPoint, lightRight, lightUp);
+        uv = uv * areaLightTexScale + areaLightTexOffset[i];
+
+        float lod = computeLOD(P, centerPoint, lightArea);
+
+        //vec3 lightTexColor = textureLod(areaLightTex, uv, lod).rgb;
+        vec3 lightTexColor = texture(areaLightTex, uv).rgb; // debugging
+
+        finalTexColor += lightTexColor;
     }
+
+    finalTexColor /= float(NUM_LIGHTS);
 
     // GGX BRDF shadowing and Fresnel
     // t2.x: shadowedF90 (F90 normally it should be 1.0)
     // t2.y: Smith function for Geometric Attenuation Term, it is dot(V or L, H).
-    ltc_spec *= mSpecular * t2.x + (vec3(1.0) - mSpecular) * t2.y;
-    ltc_diffuse *= mDiffuse;
+    ltc_spec *= (mSpecular * t2.x + (vec3(1.0) - mSpecular) * t2.y) * finalTexColor;
+    ltc_diffuse *= mDiffuse * finalTexColor;
 
     // // area light result
     //vec3 ltcResult = 10 * (ltc_spec + ltc_diffuse);
     //color = vec4(ToSRGB(ltcResult), 1.0);
+
+    //color = vec4(finalTexColor, 1.0); // debugging
+    //color = vec4(texture(areaLightTex, vec2(0.5, 0.5)).rgb, 1.0); // debugging
 
 
     ////////////////////////
@@ -199,7 +259,7 @@ void main() {
 
 
     vec3 combDiffuse = dirDiffuse + ToSRGB(ltc_diffuse) * 3;
-    vec3 combSpecular = dirSpecular + ToSRGB(ltc_spec) * 3;
+    vec3 combSpecular = dirSpecular + ToSRGB(ltc_spec) * 5;
     vec3 combResult = dirLightIntensity * (combDiffuse + combSpecular) + dirAmbientLight * dirAmbientCol;
 
     color = vec4(combResult, 1.0);

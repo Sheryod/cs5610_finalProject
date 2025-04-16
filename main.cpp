@@ -58,26 +58,6 @@ GLuint waterVAO;
 /// </summary>
 int totalNumVert;
 
-///// <summary>
-///// The vertices for the quad plane used with tessellation.
-///// </summary>
-//float waterQuadVertices[] = {
-//	-10.0f, 0.0f, -10.0f,
-//	 10.0f, 0.0f, -10.0f,
-//	 10.0f, 0.0f,  10.0f,
-//	-10.0f, 0.0f,  10.0f
-//};
-
-///// <summary>
-///// The texture coordinates for the quad plane used with tessellation.
-///// </summary>
-//float waterQuadTexCoords[] = {
-//	0.0f, 1.0f,
-//	1.0f, 1.0f,
-//	1.0f, 0.0f,
-//	0.0f, 0.0f
-//};
-
 float timePassed = 0.0f;
 int tessLevel = 1;
 float innerRadius = 1.0f;
@@ -206,7 +186,8 @@ GLuint areaLightVAO;
 int areaLightNumVert;
 
 cy::Vec3f* areaLightUniqueVert;
-
+cy::Vec2f* areaLightTexOffset;
+cy::Vec2f areaLightScale;
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -737,6 +718,8 @@ void cubeSetup() {
 	int cubeFaces = cubeMesh.NF();
 	cubeNumVert = cubeFaces * 3;
 
+	// Ensure cubeVertices is allocated with the correct size
+	delete[] cubeVertices;
 	cubeVertices = new cy::Vec3f[cubeNumVert];
 
 	int vertOffSet = 0;
@@ -749,9 +732,11 @@ void cubeSetup() {
 		int vertInd2 = faces.v[1];
 		int vertInd3 = faces.v[2];
 
-		cubeVertices[vertOffSet] = cubeMesh.V(vertInd1);
-		cubeVertices[vertOffSet + 1] = cubeMesh.V(vertInd2);
-		cubeVertices[vertOffSet + 2] = cubeMesh.V(vertInd3);
+		if (vertOffSet < cubeNumVert) {
+			cubeVertices[vertOffSet] = cubeMesh.V(vertInd1);
+			cubeVertices[vertOffSet + 1] = cubeMesh.V(vertInd2);
+			cubeVertices[vertOffSet + 2] = cubeMesh.V(vertInd3);
+		}
 
 		vertOffSet += 3;
 	}
@@ -762,46 +747,47 @@ void cubeSetup() {
 /// Create arrays containing all the necessity datas.
 /// </summary>
 void loadObjFileSetup(cyTriMesh &mesh, cyVec3f* &vertices, cyVec2f* &textures, int &numVert) {
+    int numFaces = mesh.NF();    // get the number of faces
+    numVert = numFaces * 3;
 
-	int numFaces = mesh.NF();	// get the number of faces
-	numVert = numFaces * 3;
+    if (vertices != nullptr) 
+        delete[] vertices; // Prevent memory leaks
+    vertices = new cyVec3f[numVert];
 
-	if (vertices != nullptr) 
-		delete[] vertices; // Prevent memory leaks
-	vertices = new cyVec3f[numVert];
+    if (textures != nullptr) 
+        delete[] textures; // Prevent memory leaks
+    textures = new cyVec2f[numVert];
 
-	if (textures != nullptr) 
-		delete[] textures; // Prevent memory leaks
-	textures = new cyVec2f[numVert];
+    int vertOffSet = 0;
 
-	int vertOffSet = 0;
+    for (int i = 0; i < numFaces; i++) {
+        // Faces for vertices
+        cy::TriMesh::TriFace faces = mesh.F(i);
 
-	for (int i = 0; i < numFaces; i++) {
+        int vertInd1 = faces.v[0];
+        int vertInd2 = faces.v[1];
+        int vertInd3 = faces.v[2];
 
-		// Faces for vertices
-		cy::TriMesh::TriFace faces = mesh.F(i);
+        if (vertOffSet < numVert) {
+            vertices[vertOffSet] = mesh.V(vertInd1);
+            vertices[vertOffSet + 1] = mesh.V(vertInd2);
+            vertices[vertOffSet + 2] = mesh.V(vertInd3);
+        }
 
-		int vertInd1 = faces.v[0];
-		int vertInd2 = faces.v[1];
-		int vertInd3 = faces.v[2];
+        // textures
+        cy::TriMesh::TriFace texFace = mesh.FT(i);
+        int texInd1 = texFace.v[0];
+        int texInd2 = texFace.v[1];
+        int texInd3 = texFace.v[2];
 
-		vertices[vertOffSet] = mesh.V(vertInd1);
-		vertices[vertOffSet + 1] = mesh.V(vertInd2);
-		vertices[vertOffSet + 2] = mesh.V(vertInd3);
+        if (vertOffSet < numVert) {
+            textures[vertOffSet] = mesh.VT(texInd1).XY();
+            textures[vertOffSet + 1] = mesh.VT(texInd2).XY();
+            textures[vertOffSet + 2] = mesh.VT(texInd3).XY();
+        }
 
-		// textures
-
-		cy::TriMesh::TriFace texFace = mesh.FT(i);
-		int texInd1 = texFace.v[0];
-		int texInd2 = texFace.v[1];
-		int texInd3 = texFace.v[2];
-
-		textures[vertOffSet] = mesh.VT(texInd1).XY();
-		textures[vertOffSet + 1] = mesh.VT(texInd2).XY();
-		textures[vertOffSet + 2] = mesh.VT(texInd3).XY();
-
-		vertOffSet += 3;
-	}
+        vertOffSet += 3;
+    }
 }
 
 /// <summary>
@@ -869,12 +855,34 @@ void areaLightVAOVBOfromOBJ() {
 
 void areaLightUniqueVerts() {
 	areaLightUniqueVert = new cy::Vec3f[24]; // 6 area lights, 4 vertices each
+	areaLightTexOffset = new cy::Vec2f[6]; // 6 area lights, 2 texture coordinates each
 	int vertOffSet = 0;
 	for (int i = 0; i < 24; i += 4) {
-		areaLightUniqueVert[i] = areaLightVertices[vertOffSet];
-		areaLightUniqueVert[i + 1] = areaLightVertices[vertOffSet + 1];
-		areaLightUniqueVert[i + 2] = areaLightVertices[vertOffSet + 2];
-		areaLightUniqueVert[i + 3] = areaLightVertices[vertOffSet + 5];
+		areaLightUniqueVert[i] = areaLightVertices[vertOffSet];			// bottom left
+		areaLightUniqueVert[i + 1] = areaLightVertices[vertOffSet + 1];	// bottom right
+		areaLightUniqueVert[i + 2] = areaLightVertices[vertOffSet + 2]; // top right
+		areaLightUniqueVert[i + 3] = areaLightVertices[vertOffSet + 5]; // top left
+
+		// for the texture coordinates, want to find the offset (using min) and scale.
+		cyVec2f uv0 = areaLightTextures[vertOffSet];
+		//cyVec2f uv1 = areaLightTextures[vertOffSet + 1];
+		cyVec2f uv2 = areaLightTextures[vertOffSet + 2];
+		//cyVec2f uv3 = areaLightTextures[vertOffSet + 5];
+
+		//float minU = min(uv0.x, min(uv1.x, min(uv2.x, uv3.x)));
+		//float maxU = max(uv0.x, max(uv1.x, max(uv2.x, uv3.x)));
+
+		//float minV = min(uv0.y, min(uv1.y, min(uv2.y, uv3.y)));
+		//float maxV = max(uv0.y, max(uv1.y, max(uv2.y, uv3.y)));
+
+		if (vertOffSet == 0) { // will only be called for the first area light because the scales are equal.
+			//areaLightScale = cy::Vec2f(maxU - minU, maxV - minV);
+			areaLightScale = uv2 - uv0;
+		}
+
+		//areaLightTexOffset[i / 4] = cy::Vec2f(minU, minV);
+		areaLightTexOffset[i / 4] = uv0; // bottom left corner of the area light texture
+
 
 		vertOffSet += 6; // each area light was made from 6 vertices
 	}
@@ -968,6 +976,7 @@ int main(int argc, char* argv[]) {
 	AL_Tex.Initialize();
 	AL_Tex.SetImage(areaLightTexData.data(), 4, areaLightTexWidth, areaLightTexHeight);
 	AL_Tex.BuildMipmaps();
+	AL_Tex.SetWrappingMode(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 
 
 	////
@@ -992,6 +1001,8 @@ int main(int argc, char* argv[]) {
 	// area light setup for main program
 
 	prog.SetUniform("areaLightVerts", areaLightUniqueVert, 24);
+	prog.SetUniform("areaLightTexOffset", areaLightTexOffset, 6);
+	prog["areaLightScale"] = areaLightScale;
 
 	cy::GLTexture2D ltc1 = loadMinvTexture(LTC1);
 	cy::GLTexture2D ltc2 = loadMinvTexture(LTC2);
@@ -1000,6 +1011,8 @@ int main(int argc, char* argv[]) {
 	ltc2.Bind(1);
 	prog["ltc2"] = 1;
 
+	AL_Tex.Bind(2);
+	prog["areaLightTex"] = 2;
 	AL_Tex.Bind(0);
 	areaLightProg["areaLightTex"] = 0;
 
@@ -1012,7 +1025,7 @@ int main(int argc, char* argv[]) {
 	// // just checking the area light vertices:
 	//fprintf(stderr, "area light vertices:\n");
 	//for (int i = 0; i < 24; i++) {
-	//	fprintf(stderr, "%f %f %f\n", areaLightUniqueVert[i].x, areaLightUniqueVert[i].y, areaLightUniqueVert[i].z);
+	//	fprintf(stderr, "%f %f\n", areaLightTextures[i].x, areaLightTextures[i].y);
 	//}
 
 	// Register callbacks
