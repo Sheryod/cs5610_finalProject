@@ -119,7 +119,7 @@ float cameraDistance = 5.0f;
 cy::Vec3f frontVector;
 cy::Vec3f rightVector;
 cy::Vec3f upVector = cy::Vec3f(0.0f, 1.0f, 0.0f);
-cy::Vec3f camPosition = cy::Vec3f(0.0f, 0.0f, 0.0f);
+cy::Vec3f camPosition = cy::Vec3f(0.0f, 4.0f, -10.0f);
 
 /// <summary>
 /// Key boolean values.
