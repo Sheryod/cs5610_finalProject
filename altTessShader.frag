@@ -52,8 +52,9 @@ float IntegrateEdge(vec3 v1, vec3 v2)
 }
 
 /// calculate for 1 area light source
-/// modified function from https://learnopengl.com/Advanced-Lighting/Area-Lights
-vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which light number is this
+/// modified function from https://learnopengl.com/Guest-Articles/2022/Area-Lights
+/// lightNum: the index of the area light source (0-5)
+vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){
     
     // construct orthonormal basis around N
     vec3 T1, T2;
@@ -69,7 +70,6 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     for (int i = 0; i < 4; i++){
         L[i] = areaLightVerts[index + i];
         transformedLight[i] = normalize(Minv * (L[i] - P));
-        //transformedLight[i] = Minv * (L[i] - P);
     }
 
     vec3 dir = L[0] - P; // direction from light to surface
@@ -78,7 +78,6 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     if(behind){
         return vec3(0.0); // if the light is behind the surface, return 0
     }
-
 
     // integrate the edge of the light
     vec3 vSum = vec3(0.0);
@@ -108,17 +107,18 @@ vec3 evaluateLTC(int lightNum, vec3 N, vec3 V, vec3 P, mat3 Minv){ // which ligh
     return vec3(sum);
 }
 
+/// gamma correction
+// source: https://learnopengl.com/Advanced-Lighting/Gamma-Correction
 
-// PBR-maps for roughness (and metallic) are usually stored in non-linear
-// color space (sRGB), so we use these functions to convert into linear RGB.
-vec3 PowVec3(vec3 v, float p)
-{
+vec3 powVec3(vec3 v, float p) {
     return vec3(pow(v.x, p), pow(v.y, p), pow(v.z, p));
 }
 
 const float gamma = 2.2;
-vec3 ToLinear(vec3 v) { return PowVec3(v, gamma); }
-vec3 ToSRGB(vec3 v)   { return PowVec3(v, 1.0/gamma); }
+
+vec3 toSRGB(vec3 v) {
+    return powVec3(v, 1.0/gamma); 
+}
 
 void main() {
 
@@ -133,8 +133,8 @@ void main() {
 
     // area lights preparations
     // gamma correction
-    vec3 mDiffuse = vec3(0.7f, 0.8f, 0.96f);
-    vec3 mSpecular = ToLinear(vec3(0.23f, 0.23f, 0.23f)); // mDiffuse
+    vec3 mDiffuse = vec3(0.74f, 0.83f, 0.96f);
+    vec3 mSpecular = vec3(0.25f, 0.25f, 0.25f);
 
     vec3 areaLight_color = vec3(1.0);
     float dotNV = clamp(dot(N, V), 0.0, 1.0);
@@ -164,9 +164,7 @@ void main() {
     // t2.x: shadowedF90 (F90 normally it should be 1.0)
     // t2.y: Smith function for Geometric Attenuation Term, it is dot(V or L, H).
     ltc_spec *= mSpecular * t2.x + (vec3(1.0) - mSpecular) * t2.y;
-    //ltc_diffuse *= mDiffuse * ltc_diffuse;
     ltc_diffuse *= mDiffuse;
-
 
     ////////////////////////
     // directional lights //
@@ -205,14 +203,14 @@ void main() {
         float objectRatio = 1 - envRatio;
         dirResult = dirResult * objectRatio;
 
-        vec3 combDiffuse = dirDiffuse + ToSRGB(ltc_diffuse);
-        vec3 combSpecular = dirSpecular + ToSRGB(ltc_spec);
+        vec3 combDiffuse = dirDiffuse + toSRGB(ltc_diffuse);
+        vec3 combSpecular = dirSpecular + toSRGB(ltc_spec);
         vec3 combResult = dirLightIntensity * (combDiffuse + combSpecular) + dirAmbientLight * dirAmbientCol;
 
         color = vec4(combResult, 1.0);
     }
     else{
         vec3 ltcResult = 10 * (ltc_spec + ltc_diffuse);
-        color = vec4(ToSRGB(ltcResult), 1.0);
+        color = vec4(toSRGB(ltcResult), 1.0);
     }
 }

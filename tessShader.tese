@@ -1,6 +1,5 @@
 #version 410 core
 
-//layout(quads, equal_spacing, ccw) in;
 layout(triangles, equal_spacing, ccw) in;
 
 in vec3 pos[];
@@ -28,7 +27,6 @@ void main() {
     float w = 1.0 - u - v;
     fragTexCoord = u * uvs[0] + v * uvs[1] + w * uvs[2];
     
-
     vec3 currentPos = u * pos[0] + v * pos[1] + w * pos[2];
 
     // calculate normal and height
@@ -54,6 +52,7 @@ void main() {
     fragNormal = normalize(cross(tangent, binormal));
 
     currentPos.y = height;
+
     // the position in view space
 	fragPos = vec3(modelMat * vec4(currentPos, 1));
 

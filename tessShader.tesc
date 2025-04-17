@@ -9,7 +9,6 @@ in vec3 worldPos[];
 
 out vec3 pos[];
 out vec2 uvs[]; // is texture coords
-//out vec3 wPos[];
 
 uniform int tessLevel;
 uniform vec3 cameraVec;
@@ -21,8 +20,6 @@ void main() {
 	
 	pos[gl_InvocationID] = fragPos[gl_InvocationID];
 	uvs[gl_InvocationID] = fragTexCoord[gl_InvocationID];
-
-	//wPos[gl_InvocationID] = worldPos[gl_InvocationID];
 
 	if (gl_InvocationID == 0) {
 

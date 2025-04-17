@@ -640,10 +640,12 @@ void keyboardInput(unsigned char key, int x, int y) {
 		if (isDirectionalLight) {
 			prog["isDirectionalLight"] = 1;
 			altProg["isDirectionalLight"] = 1;
+			cubeProg["isDirectionalLight"] = 1;
 		}
 		else {
 			prog["isDirectionalLight"] = 0;
 			altProg["isDirectionalLight"] = 0;
+			cubeProg["isDirectionalLight"] = 0;
 		}
 		quadMVP();
 		glutPostRedisplay();
@@ -1193,6 +1195,7 @@ int main(int argc, char* argv[]) {
 	ltc2 = loadMinvTexture(LTC2);
 	prog["isDirectionalLight"] = 1;
 	altProg["isDirectionalLight"] = 1;
+	cubeProg["isDirectionalLight"] = 1;
 	if (isTexturedLight) {
 		handleAreaLightProgUniforms(prog);
 	}
