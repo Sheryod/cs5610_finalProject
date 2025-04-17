@@ -18,9 +18,6 @@
 
 #include <LTC.h>
 
-//#include <glm/glm.hpp>
-//#include <glm/gtc/matrix_transform.hpp>
-
 using namespace std;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -30,11 +27,6 @@ using namespace std;
 /// </summary>
 unsigned int windowWidth = 800;
 unsigned int windowHeight = 500;
-
-/// <summary>
-/// The VAO for the quad plane when tessellation is used.
-/// </summary>
-GLuint waterQuadVAO;
 
 /// <summary>
 /// The mesh of the object.
@@ -51,6 +43,9 @@ cyVec3f* vertices;
 /// </summary>
 cyVec2f* textures;
 
+/// <summary>
+/// The VAO for the water quad plane.
+/// </summary>
 GLuint waterVAO;
 
 /// <summary>
@@ -58,11 +53,13 @@ GLuint waterVAO;
 /// </summary>
 int totalNumVert;
 
+/// <summary>
+/// Just wave things.
+/// </summary>
 float timePassed = 0.0f;
 int tessLevel = 1;
 float innerRadius = 1.0f;
 float outerRadius = 20.0f;
-
 int numOfWaves = 32;
 float* waveAmplitude = new float[numOfWaves];
 float* waveFrequency = new float[numOfWaves];
@@ -74,6 +71,7 @@ cyVec2f* waveDirection = new cyVec2f[numOfWaves];
 /// </summary>
 cy::GLSLProgram prog;
 cy::GLSLProgram triangleLineProg;
+cy::GLSLProgram altProg;
 
 /// <summary>
 /// The condition to show triangulation.
@@ -115,11 +113,17 @@ float phi = 0.0f;
 /// </summary>
 float cameraDistance = 5.0f;
 
+/// <summary>
+/// Camera vectors things.
+/// </summary>
 cy::Vec3f frontVector;
 cy::Vec3f rightVector;
 cy::Vec3f upVector = cy::Vec3f(0.0f, 1.0f, 0.0f);
 cy::Vec3f camPosition = cy::Vec3f(0.0f, 0.0f, 0.0f);
 
+/// <summary>
+/// Key boolean values.
+/// </summary>
 bool wPressed = false;
 bool aPressed = false;
 bool sPressed = false;
@@ -138,18 +142,6 @@ string sideCubes[6] = {
 	"skybox_night1/posz.png",
 	"skybox_night1/negz.png"
 };
-
-///// <summary>
-///// the paths for environement skybox.
-///// </summary>
-//string sideCubes[6] = {
-//	"skybox_day1/posx.png",
-//	"skybox_day1/negx.png",
-//	"skybox_day1/posy.png",
-//	"skybox_day1/negy.png",
-//	"skybox_day1/posz.png",
-//	"skybox_day1/negz.png"
-//};
 
 /// <summary>
 /// Program object used for managing shaders: skybox edition.
@@ -177,18 +169,33 @@ int cubeNumVert;
 /// </summary>
 GLuint cubeVAO;
 
-//// area lights
+/// <summary>
+/// Just area light things.
+/// </summary>
 cy::GLSLProgram areaLightProg;
+cyGLTexture2D AL_Tex;
 cy::TriMesh areaLightMesh;
 cy::Vec3f* areaLightVertices;
 cy::Vec2f* areaLightTextures;
+cyVec2f* areaLightTexCorners;
+cyVec3f* areaLight4Corners;
 GLuint areaLightVAO;
 int areaLightNumVert;
-
 cy::Vec3f* areaLightUniqueVert;
-cy::Vec2f* areaLightTexOffset;
-cy::Vec2f areaLightScale;
 
+/// <summary>
+/// condition to use for end result.
+/// </summary>
+bool isDirectionalLight = true;
+bool isTexturedLight = false;
+
+
+
+/// <summary>
+/// ltc1 and ltc2 are the two textures used for Minv of the area light.
+/// </summary>
+cy::GLTexture2D ltc1;
+cy::GLTexture2D ltc2;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -225,13 +232,22 @@ void createScaledArray( int numOfWaves, float scale, float* arrayToFill) {
 	}
 }
 
-unsigned bounded_rand(int range)
-{
+/// <summary>
+/// This method generates a random number between 0 and range.
+/// </summary>
+/// <param name="range"> maximum number </param>
+/// <returns></returns>
+unsigned bounded_rand(int range) {
 	for (unsigned x, r;;)
 		if (x = rand(), r = x % range, x - r <= -range)
 			return r;
 }
 
+/// <summary>
+/// This method generates a random speed array.
+/// </summary>
+/// <param name="numOfWaves"> number of waves </param>
+/// <param name="speedArr"> the speed array to be filled </param>
 void createRandomSpeeds(int numOfWaves, float* speedArr) {
 	if (numOfWaves < 1) {
 		cerr << "Error: number of waves must be at least 1." << endl;
@@ -259,12 +275,98 @@ void createRandomDirections( int numOfWaves, cyVec2f* directionArr) {
 	}
 }
 
+/// <summary>
+/// This method handles the uniform setter for the quad program.
+/// </summary>
+/// <param name="progName"> program used </param>
+/// <param name="modelMatrix"> model matrix </param>
+/// <param name="viewMatrix"> view matrix </param>
+/// <param name="projectionMatrix"> projection matrix </param>
+/// <param name="lightDirWorld"> light direction in world space </param>
+/// <param name="eye"> camera position </param>
+void handleQuadMVPProgUniforms(cy::GLSLProgram& progName, cyMatrix4f modelMatrix, cyMatrix4f viewMatrix, cyMatrix4f projectionMatrix, cyVec3f lightDirWorld, cyVec3f eye) {
+	progName["modelMat"] = modelMatrix;
+	progName["viewMat"] = viewMatrix;
+	progName["projectionMat"] = projectionMatrix;
+	progName["lightDir"] = lightDirWorld;
+	progName["lightColor"] = cy::Vec3f(1.0f, 1.0f, 1.0f);
+	progName["cameraVec"] = eye;
+	progName["constShininess"] = 256.0f;
+	progName["constLightIntensity"] = 1.0f;
+	progName["constAmbientLight"] = 0.5f;
+}
+
+/// <summary>
+/// This method handles the uniform setter for the area light program.
+/// </summary>
+/// <param name="progName"> program used </param>
+void handleAreaLightProgUniforms(cy::GLSLProgram& progName) {
+	// area light setup for main program
+	progName.SetUniform("areaLightVerts", areaLightUniqueVert, 24);
+	if (isTexturedLight) {
+		progName.SetUniform("areaLightTexCorners", areaLightTexCorners, 4);
+		progName.SetUniform("areaLight4Corners", areaLight4Corners, 4);
+	}
+
+	ltc1.Bind(1);
+	progName["ltc1"] = 1;
+	ltc2.Bind(2);
+	progName["ltc2"] = 2;
+
+	if (isTexturedLight) {
+		AL_Tex.Bind(0);
+		prog["areaLightTex"] = 0;
+	}
+}
+
+/// <summary>
+/// This method handles the uniform setter for the wave parameters.
+/// </summary>
+/// <param name="progName"> the program used </param>
+void waveUniformUpdate(cy::GLSLProgram& progName) {
+	progName["numOfWaves"] = numOfWaves;
+	progName.SetUniform("waveDirection", waveDirection, numOfWaves);
+	progName.SetUniform1("waveAmplitude", waveAmplitude, numOfWaves);
+	progName.SetUniform1("waveFrequency", waveFrequency, numOfWaves);
+	progName.SetUniform1("waveSpeed", waveSpeed, numOfWaves);
+}
+
+/// <summary>
+/// This method handles the uniform setter for tessellation and radius.
+/// </summary>
+void updateTessAndRadiusUniforms() {
+	if (isTexturedLight) {
+		prog["tessLevel"] = tessLevel;
+		prog["innerRadius"] = innerRadius;
+		prog["outerRadius"] = outerRadius;
+	}
+	else {
+		altProg["tessLevel"] = tessLevel;
+		altProg["innerRadius"] = innerRadius;
+		altProg["outerRadius"] = outerRadius;
+	}
+	triangleLineProg["tessLevel"] = tessLevel;
+	triangleLineProg["innerRadius"] = innerRadius;
+	triangleLineProg["outerRadius"] = outerRadius;
+}
+
+/// <summary>
+/// This method handles the uniform setter for area light MVPs.
+/// </summary>
+/// <param name="model"> model matrix </param>
+/// <param name="view"> view matrix </param>
+/// <param name="projection"> projection matrix </param>
 void areaLightMatrix(cy::Matrix4f model, cy::Matrix4f view, cy::Matrix4f projection) {
 	areaLightProg["modelMat"] = model;
 	areaLightProg["viewMat"] = view;
 	areaLightProg["projectionMat"] = projection;
 }
 
+/// <summary>
+/// This method handles the uniform setter for cubemap MVPs.
+/// </summary>
+/// <param name="view"> view matrix </param>
+/// <param name="projection"> projection matrix </param>
 void cubemapMatrix(cy::Matrix4f view, cy::Matrix4f projection) {
 
 	cy::Matrix4f viewMatrix = cy::Matrix4f(view.GetSubMatrix3()); // remove the transltion of the matrix.
@@ -293,16 +395,11 @@ void quadMVP() {
 	// Model transformation
 	cy::Matrix4f modelMatrix;
 	modelMatrix.SetIdentity();
-
-	prog["modelMat"] = modelMatrix;
 	
 	cy:cyVec3f eye = camPosition;
 	cy::Vec3f center = camPosition + frontVector;
 	cy::Vec3f up = rightVector.Cross(frontVector).GetNormalized();
-
 	cy::Matrix4f viewMatrix = cy::Matrix4f::View(eye, center, up);
-
-	prog["viewMat"] = viewMatrix;
 
 	// Projection transformation
 	float fov = 40.0f;										// Field of view in degrees
@@ -311,19 +408,14 @@ void quadMVP() {
 	float farClip = 1000.0f;								// Far clipping plane
 	cy::Matrix4f projectionMatrix = cy::Matrix4f::Perspective(deg2rad(fov), aspectRatio, nearClip, farClip);
 
-	prog["projectionMat"] = projectionMatrix;
-
-	// ambient + diffuse + specular
-	//cy::Vec3f lightDirWorld = cy::Vec3f(0.0f, -0.5f, -1.0f).GetNormalized();
-
 	cy::Vec3f lightDirWorld = cy::Vec3f(0.0f, 0.0f, -1.0f).GetNormalized();
 
-	prog["lightDir"] = lightDirWorld;
-	prog["lightColor"] = cy::Vec3f(1.0f, 1.0f, 1.0f);
-	prog["cameraVec"] = eye;
-	prog["constShininess"] = 256.0f;
-	prog["constLightIntensity"] = 1.0f;
-	prog["constAmbientLight"] = 0.5f;
+	if (isTexturedLight) {
+		handleQuadMVPProgUniforms(prog, modelMatrix, viewMatrix, projectionMatrix, lightDirWorld, eye);
+	}
+	else {
+		handleQuadMVPProgUniforms(altProg, modelMatrix, viewMatrix, projectionMatrix, lightDirWorld, eye);
+	}
 
 	lineMVP(modelMatrix, viewMatrix, projectionMatrix);
 	triangleLineProg["cameraVec"] = eye;
@@ -333,6 +425,9 @@ void quadMVP() {
 	areaLightMatrix(modelMatrix, viewMatrix, projectionMatrix);
 }
 
+/// <summary>
+/// Helper method to draw the cubemap.
+/// </summary>
 void drawCubemap() {
 	// draw cubemap
 	glDepthMask(GL_FALSE);
@@ -358,19 +453,33 @@ void drawTriangulation() {
 /// Helper method to draw the quad when tessellation = true.
 /// </summary>
 void drawWaterQuad() {
+
 	glPatchParameteri(GL_PATCH_VERTICES, 3);
 	glBindVertexArray(waterVAO);
-	prog.Bind();
-	prog["env"] = 0;
+	if (isTexturedLight) {
+		prog.Bind();
+		prog["env"] = 0;
+		
+	}
+	else {
+		altProg.Bind();
+		altProg["env"] = 0;
+	}
 	glDrawArrays(GL_PATCHES, 0, totalNumVert);
 }
 
+/// <summary>
+/// This method draws the area light.
+/// </summary>
 void drawAreaLight() {
 	glBindVertexArray(areaLightVAO);
 	areaLightProg.Bind();
 	glDrawArrays(GL_TRIANGLES, 0, areaLightNumVert);
 }
 
+/// <summary>
+/// This method calculates the camera vector.
+/// </summary>
 void cameraVectors() {
 	float thetaRad = deg2rad(theta);
 	float phiRad = deg2rad(phi);
@@ -382,6 +491,10 @@ void cameraVectors() {
 	rightVector = frontVector.Cross(cy::Vec3f(0, 1, 0)).GetNormalized();
 }
 
+/// <summary>
+/// This method handles the camera movement.
+/// </summary>
+/// <param name="deltaTime"> time passed </param>
 void cameraMovement(float deltaTime) {
 	float moveSpeed = 10.0f * deltaTime; // Speed of camera movement
 
@@ -406,6 +519,10 @@ void cameraMovement(float deltaTime) {
 	}
 }
 
+/// <summary>
+/// This method handles the time calculations.
+/// </summary>
+/// <returns> time passed </returns>
 float timeCalculations() {
 	static int prevTime = glutGet(GLUT_ELAPSED_TIME);
 	int currentTime = glutGet(GLUT_ELAPSED_TIME);
@@ -418,16 +535,6 @@ float timeCalculations() {
 	return timePassed;
 }
 
-void updateTessAndRadiusUniforms() {
-	prog["tessLevel"] = tessLevel;
-	triangleLineProg["tessLevel"] = tessLevel;
-
-	prog["innerRadius"] = innerRadius;
-	prog["outerRadius"] = outerRadius;
-	triangleLineProg["innerRadius"] = innerRadius;
-	triangleLineProg["outerRadius"] = outerRadius;
-}
-
 /// <summary>
 /// Handles the display callback for rendering.
 /// </summary>
@@ -435,23 +542,38 @@ void handleDisplay() {
 	quadMVP();
 
 	float time = timeCalculations();
-	prog["time"] = time;
+	if (isTexturedLight) {
+		prog["time"] = time;
+	}
+	else {
+		altProg["time"] = time;
+	}
 	triangleLineProg["time"] = time;
 
 	// Clear the viewport
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glClearColor(0.4, 0.7, 0.8, 1);	// background color
 
-	drawWaterQuad();
+	AL_Tex.Bind(0);
+	if (isTexturedLight){
+		prog["areaLightTex"] = 0;
+	}
+	areaLightProg["areaLightTex"] = 0;
 
+	if (isTexturedLight) {
+		areaLightProg["useTexture"] = 1;
+	}
+	else {
+		areaLightProg["useTexture"] = 0;
+	}
+
+	drawWaterQuad();
 	// show triangulation
 	if (showTriangulation) {
 		drawTriangulation();
 	}
-
-	drawCubemap();
-
 	drawAreaLight();
+	drawCubemap();
 
 	// Swap buffers
 	glutSwapBuffers();
@@ -470,7 +592,7 @@ void keyboardInput(unsigned char key, int x, int y) {
 	case 27: // esc to exit
 		glutLeaveMainLoop();
 		break;
-	case 84: // t or T
+	case 't': case 'T': // t or T
 		// show triangulation
 		showTriangulation = !showTriangulation;
 		glutPostRedisplay();
@@ -495,9 +617,46 @@ void keyboardInput(unsigned char key, int x, int y) {
 		// move up
 		spacePressed = true;
 		break;
+	case 'q': case 'Q':
+		// textured area lights
+		isTexturedLight = !isTexturedLight;
+		if (isTexturedLight) {
+			prog.Bind();
+			handleAreaLightProgUniforms(prog);
+			waveUniformUpdate(prog);
+		}
+		else {
+			altProg.Bind();
+			handleAreaLightProgUniforms(altProg);
+			waveUniformUpdate(altProg);
+		}
+		quadMVP();
+		updateTessAndRadiusUniforms();
+		glutPostRedisplay();
+		break;
+	case 'e': case 'E':
+		// directional light
+		isDirectionalLight = !isDirectionalLight;
+		if (isDirectionalLight) {
+			prog["isDirectionalLight"] = 1;
+			altProg["isDirectionalLight"] = 1;
+		}
+		else {
+			prog["isDirectionalLight"] = 0;
+			altProg["isDirectionalLight"] = 0;
+		}
+		quadMVP();
+		glutPostRedisplay();
+		break;
 	}
 }
 
+/// <summary>
+/// This method handles the keyboard up events.
+/// </summary>
+/// <param name="key"> the key let go </param>
+/// <param name="x"> the x pos of cursor </param>
+/// <param name="y"> the y pos of cursor </param>
 void keyboardUp(unsigned char key, int x, int y) {
 	switch (key) {
 	case 'w': case 'W': 
@@ -564,6 +723,12 @@ void specialKeyInput(int key, int x, int y) {
 	glutPostRedisplay();
 }
 
+/// <summary>
+/// This method handles the special key up events.
+/// </summary>
+/// <param name="key"> the key pressed </param>
+/// <param name="x"> the x position of cursor </param>
+/// <param name="y"> the y position of cursor </param>
 void specialKeyUp(int key, int x, int y) {
 	if (key == GLUT_KEY_SHIFT_L || key == GLUT_KEY_SHIFT_R) {
 		shiftPressed = false;
@@ -620,14 +785,6 @@ void mouseMotion(int x, int y) {
 
 		// adjusting front vector
 		cameraVectors();
-		//float thetaRad = deg2rad(theta);
-		//float phiRad = deg2rad(phi);
-		//frontVector = cy::Vec3f(
-		//	cos(thetaRad) * cos(phiRad),
-		//	sin(phiRad),
-		//	sin(thetaRad) * cos(phiRad)
-		//).GetNormalized();
-		//rightVector = frontVector.Cross(cy::Vec3f(0, 1, 0)).GetNormalized();
 	}
 	else if (isRightButton) {
 		camPosition += frontVector * dy * 0.1f;
@@ -813,7 +970,7 @@ void cubeVaoVbo() {
 }
 
 /// <summary>
-/// This method prepares the Vao and Vbo for the quad plane used with tessellation.
+/// This method prepares the Vao and Vbo for the water quad plane.
 /// </summary>
 void waterQuadVAOVBOfromOBJ() {
 	GLuint waterBuffer, waterTextureBuffer;
@@ -834,6 +991,9 @@ void waterQuadVAOVBOfromOBJ() {
 	glEnableVertexAttribArray(1);
 }
 
+/// <summary>
+/// This method prepares the Vao and Vbo for the area light.
+/// </summary>
 void areaLightVAOVBOfromOBJ() {
 	GLuint areaLightBuffer, areaLightTexBuffer;
 	glGenVertexArrays(1, &areaLightVAO);
@@ -853,9 +1013,14 @@ void areaLightVAOVBOfromOBJ() {
 	glEnableVertexAttribArray(1);
 }
 
+/// <summary>
+/// This method sets up the area light vertices for sending it to tessShader.
+/// </summary>
 void areaLightUniqueVerts() {
 	areaLightUniqueVert = new cy::Vec3f[24]; // 6 area lights, 4 vertices each
-	areaLightTexOffset = new cy::Vec2f[6]; // 6 area lights, 2 texture coordinates each
+	areaLightTexCorners = new cy::Vec2f[4]; // 4 corners of the area light texture
+	areaLight4Corners = new cy::Vec3f[4]; // 4 corners of the area light texture
+	
 	int vertOffSet = 0;
 	for (int i = 0; i < 24; i += 4) {
 		areaLightUniqueVert[i] = areaLightVertices[vertOffSet];			// bottom left
@@ -865,24 +1030,49 @@ void areaLightUniqueVerts() {
 
 		// for the texture coordinates, want to find the offset (using min) and scale.
 		cyVec2f uv0 = areaLightTextures[vertOffSet];
-		//cyVec2f uv1 = areaLightTextures[vertOffSet + 1];
 		cyVec2f uv2 = areaLightTextures[vertOffSet + 2];
-		//cyVec2f uv3 = areaLightTextures[vertOffSet + 5];
 
-		//float minU = min(uv0.x, min(uv1.x, min(uv2.x, uv3.x)));
-		//float maxU = max(uv0.x, max(uv1.x, max(uv2.x, uv3.x)));
+		if (vertOffSet == 0) {
+			areaLightTexCorners[0] = uv0; // bottom left corner
+			areaLightTexCorners[1] = areaLightTextures[vertOffSet+1]; // bottom right corner
+			areaLightTexCorners[2] = uv2; // top right corner
+			areaLightTexCorners[3] = areaLightTextures[vertOffSet+5]; // top left corner
 
-		//float minV = min(uv0.y, min(uv1.y, min(uv2.y, uv3.y)));
-		//float maxV = max(uv0.y, max(uv1.y, max(uv2.y, uv3.y)));
-
-		if (vertOffSet == 0) { // will only be called for the first area light because the scales are equal.
-			//areaLightScale = cy::Vec2f(maxU - minU, maxV - minV);
-			areaLightScale = uv2 - uv0;
+			areaLight4Corners[0] = areaLightUniqueVert[i]; // bottom left corner
+			areaLight4Corners[1] = areaLightUniqueVert[i + 1]; // bottom right corner
+			areaLight4Corners[2] = areaLightUniqueVert[i + 2]; // top right corner
+			areaLight4Corners[3] = areaLightUniqueVert[i + 3]; // top left corner
 		}
 
-		//areaLightTexOffset[i / 4] = cy::Vec2f(minU, minV);
-		areaLightTexOffset[i / 4] = uv0; // bottom left corner of the area light texture
+		else {
+			cyVec2f newBotLeft = areaLightTextures[vertOffSet];
+			cyVec2f currBotLeft = areaLightTexCorners[0];
+			if (newBotLeft.x <= currBotLeft.x && newBotLeft.y <= currBotLeft.y) {
+				areaLightTexCorners[0] = newBotLeft;
+				areaLight4Corners[0] = areaLightUniqueVert[i]; // bottom left corner
+			}
 
+			cyVec2f newBotRight = areaLightTextures[vertOffSet + 1];
+			cyVec2f currBotRight = areaLightTexCorners[1];
+			if (newBotRight.x >= currBotRight.x && newBotRight.y <= currBotRight.y) {
+				areaLightTexCorners[1] = newBotRight;
+				areaLight4Corners[1] = areaLightUniqueVert[i+1];
+			}
+
+			cyVec2f newTopRight = areaLightTextures[vertOffSet + 2];
+			cyVec2f currTopRight = areaLightTexCorners[2];
+			if (newTopRight.x >= currTopRight.x && newTopRight.y >= currTopRight.y) {
+				areaLightTexCorners[2] = newTopRight;
+				areaLight4Corners[2] = areaLightUniqueVert[i+2];
+			}
+
+			cyVec2f newTopLeft = areaLightTextures[vertOffSet + 5];
+			cyVec2f currTopLeft = areaLightTexCorners[3];
+			if (newTopLeft.x <= currTopLeft.x && newTopLeft.y >= currTopLeft.y) {
+				areaLightTexCorners[3] = newTopLeft;
+				areaLight4Corners[3] = areaLightUniqueVert[i+3];
+			}
+		}
 
 		vertOffSet += 6; // each area light was made from 6 vertices
 	}
@@ -900,10 +1090,12 @@ cy::GLTexture2D loadMinvTexture(const float* matrixTable) {
 	texture.SetImage(matrixTable, 4, 64, 64); // 4 channels, 64x64 size
 	texture.SetWrappingMode(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
 	texture.SetFilteringMode(GL_LINEAR, GL_NEAREST);
-	//texture.Bind();
 	return texture;
 }
 
+/// <summary>
+/// This method sets up the wave parameters.
+/// </summary>
 void waveSetup() {
 	// wave parameters
 	createScaledArray(numOfWaves, 0.5f, waveAmplitude);
@@ -911,11 +1103,12 @@ void waveSetup() {
 	createRandomDirections(numOfWaves, waveDirection);
 	createRandomSpeeds(numOfWaves, waveSpeed);
 
-	prog["numOfWaves"] = numOfWaves;
-	prog.SetUniform("waveDirection", waveDirection, numOfWaves);
-	prog.SetUniform1("waveAmplitude", waveAmplitude, numOfWaves);
-	prog.SetUniform1("waveFrequency", waveFrequency, numOfWaves);
-	prog.SetUniform1("waveSpeed", waveSpeed, numOfWaves);
+	if (isTexturedLight) {
+		waveUniformUpdate(prog);
+	}
+	else {
+		waveUniformUpdate(altProg);
+	}
 
 	triangleLineProg["numOfWaves"] = numOfWaves;
 	triangleLineProg.SetUniform("waveDirection", waveDirection, numOfWaves);
@@ -972,12 +1165,10 @@ int main(int argc, char* argv[]) {
 	unsigned areaLightTexWidth, areaLightTexHeight;
 	decodeOneStep(areaLightTexFileName, areaLightTexData, areaLightTexWidth, areaLightTexHeight);
 
-	cyGLTexture2D AL_Tex;
 	AL_Tex.Initialize();
 	AL_Tex.SetImage(areaLightTexData.data(), 4, areaLightTexWidth, areaLightTexHeight);
 	AL_Tex.BuildMipmaps();
 	AL_Tex.SetWrappingMode(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
-
 
 	////
 	// cube (texture) mapping setup
@@ -989,6 +1180,7 @@ int main(int argc, char* argv[]) {
 
 	// shader program setup
 	prog.BuildFiles("tessShader.vert", "tessShader.frag", nullptr, "tessShader.tesc", "tessShader.tese");
+	altProg.BuildFiles("tessShader.vert", "altTessShader.frag", nullptr, "tessShader.tesc", "tessShader.tese");
 	triangleLineProg.BuildFiles("tessShader.vert", "triangleLine.frag", "triangleLine.geom", "tessShader.tesc", "tessShader.tese");
 	cubeProg.BuildFiles("envcube.vert", "envcube.frag");
 	areaLightProg.BuildFiles("areaLight.vert", "areaLight.frag");
@@ -997,36 +1189,16 @@ int main(int argc, char* argv[]) {
 	quadMVP(); // the line, cubemap, and arealight MVP is all here.
 	updateTessAndRadiusUniforms();
 	waveSetup();
-
-	// area light setup for main program
-
-	prog.SetUniform("areaLightVerts", areaLightUniqueVert, 24);
-	prog.SetUniform("areaLightTexOffset", areaLightTexOffset, 6);
-	prog["areaLightScale"] = areaLightScale;
-
-	cy::GLTexture2D ltc1 = loadMinvTexture(LTC1);
-	cy::GLTexture2D ltc2 = loadMinvTexture(LTC2);
-	ltc1.Bind(0);
-	prog["ltc1"] = 0;
-	ltc2.Bind(1);
-	prog["ltc2"] = 1;
-
-	AL_Tex.Bind(2);
-	prog["areaLightTex"] = 2;
-	AL_Tex.Bind(0);
-	areaLightProg["areaLightTex"] = 0;
-
-	// // just checking the wave direction:
-	//fprintf(stderr, "waveDirection:\n");
-	//for (int i = 0; i < numOfWaves; i++) {
-	//	fprintf(stderr, "%f %f\n", waveDirection[i].x, waveDirection[i].y);
-	//}
-
-	// // just checking the area light vertices:
-	//fprintf(stderr, "area light vertices:\n");
-	//for (int i = 0; i < 24; i++) {
-	//	fprintf(stderr, "%f %f\n", areaLightTextures[i].x, areaLightTextures[i].y);
-	//}
+	ltc1 = loadMinvTexture(LTC1);
+	ltc2 = loadMinvTexture(LTC2);
+	prog["isDirectionalLight"] = 1;
+	altProg["isDirectionalLight"] = 1;
+	if (isTexturedLight) {
+		handleAreaLightProgUniforms(prog);
+	}
+	else {
+		handleAreaLightProgUniforms(altProg);
+	}
 
 	// Register callbacks
 	registerCallbacks();

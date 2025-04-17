@@ -27,6 +27,7 @@ void main() {
     float v = gl_TessCoord.y;
     float w = 1.0 - u - v;
     fragTexCoord = u * uvs[0] + v * uvs[1] + w * uvs[2];
+    
 
     vec3 currentPos = u * pos[0] + v * pos[1] + w * pos[2];
 
